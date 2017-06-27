@@ -60,9 +60,7 @@ namespace UnityEngine.AssetBundles.AssetBundleOperation
         }
 
         public ABOperationProvider CreateInstance() {
-            string typeName = type.FullName;
-
-            object o = Assembly.GetExecutingAssembly().CreateInstance(typeName);
+            object o = type.Assembly.CreateInstance(type.FullName);
             return (ABOperationProvider) o;
         }
 
@@ -92,13 +90,16 @@ namespace UnityEngine.AssetBundles.AssetBundleOperation
         private static List<CustomABOperationProviderInfo> BuildCustomABOperationProviderList() {
             var list = new List<CustomABOperationProviderInfo>();
 
-            var nodes = Assembly
-                .GetExecutingAssembly()
-                .GetTypes()
-                .Where(t => t != typeof(ABOperationProvider))
-                .Where(t => typeof(ABOperationProvider).IsAssignableFrom(t));
+            var allNodes = new List<Type>();
 
-            foreach (var type in nodes) {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
+                var nodes = assembly.GetTypes()
+                    .Where(t => t != typeof(ABOperationProvider))
+                    .Where(t => typeof(ABOperationProvider).IsAssignableFrom(t));
+                allNodes.AddRange (nodes);
+            }
+
+            foreach (var type in allNodes) {
                 CustomABOperationProvider attr = 
                     type.GetCustomAttributes(typeof(CustomABOperationProvider), false).FirstOrDefault() as CustomABOperationProvider;
 
@@ -151,9 +152,13 @@ namespace UnityEngine.AssetBundles.AssetBundleOperation
             return CustomABOperationProvider.kDEFAULT_PRIORITY;
         }
 
-        public static ABOperationProvider CreateABOperationProviderInstance(string className) {
-            if(className != null) {
-                return (ABOperationProvider) Assembly.GetExecutingAssembly().CreateInstance(className);
+        public static ABOperationProvider CreateABOperationProviderInstance(string assemblyQualifiedName) {
+            if(assemblyQualifiedName != null) {
+                var type = Type.GetType(assemblyQualifiedName);
+                if (type == null) {
+                    return null;
+                }
+                return (ABOperationProvider) type.Assembly.CreateInstance(type.FullName);
             }
             return null;
         }
