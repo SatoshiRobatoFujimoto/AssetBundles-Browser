@@ -3,7 +3,7 @@ using UnityEditor.IMGUI.Controls;
 using System.Collections.Generic;
 using System.IO;
 
-using UnityEngine.AssetBundles.AssetBundleOperation;
+using UnityEngine.AssetBundles.AssetBundleDataSource;
 
 namespace UnityEngine.AssetBundles
 {
@@ -12,9 +12,12 @@ namespace UnityEngine.AssetBundles
     {
         const string k_BuildPrefPrefix = "ABBBuild:";
         // gui vars
+        [SerializeField]
         private ValidBuildTarget m_BuildTarget = ValidBuildTarget.StandaloneWindows;
+        [SerializeField]
         private CompressOptions m_Compression = CompressOptions.StandardCompression;        
         private string m_OutputPath = string.Empty;
+        [SerializeField]
         private bool m_UseDefaultPath = true;
         private string m_streamingPath = "Assets/StreamingAssets";
 
@@ -24,20 +27,31 @@ namespace UnityEngine.AssetBundles
         [SerializeField]
         private Vector2 m_ScrollPosition;
 
+
         class ToggleData
         {
-            public ToggleData(bool s, string title, string tooltip, BuildAssetBundleOptions opt = BuildAssetBundleOptions.None)
+            public ToggleData(bool s, 
+                string title, 
+                string tooltip,
+                List<string> onToggles,
+                BuildAssetBundleOptions opt = BuildAssetBundleOptions.None)
             {
+                if (onToggles.Contains(title))
+                    state = true;
+                else
+                    state = s;
                 content = new GUIContent(title, tooltip);
-                state = EditorPrefs.GetBool(prefsKey, s);
                 option = opt;
             }
-            public string prefsKey
-            { get { return k_BuildPrefPrefix + content.text; } }
+            //public string prefsKey
+            //{ get { return k_BuildPrefPrefix + content.text; } }
             public bool state;
             public GUIContent content;
             public BuildAssetBundleOptions option;
         }
+
+        [SerializeField]
+        private List<string> m_OnToggles;
         List<ToggleData> m_ToggleData;
         ToggleData m_ForceRebuild;
         ToggleData m_CopyToStreaming;
@@ -61,57 +75,69 @@ namespace UnityEngine.AssetBundles
         public AssetBundleBuildTab()
         {
             m_AdvancedSettings = false;
+            m_OnToggles = new List<string>();
+            m_UseDefaultPath = true;
         }
+
         public void OnEnable(Rect pos, EditorWindow parent)
         {
-            m_BuildTarget = (ValidBuildTarget)EditorPrefs.GetInt(k_BuildPrefPrefix + "BuildTarget", (int)m_BuildTarget);
-            m_Compression = (CompressOptions)EditorPrefs.GetInt(k_BuildPrefPrefix + "Compression", (int)m_Compression);
             m_ToggleData = new List<ToggleData>();
             m_ToggleData.Add(new ToggleData(
                 false,
                 "Exclude Type Information",
                 "Do not include type information within the asset bundle (don't write type tree).",
+                m_OnToggles,
                 BuildAssetBundleOptions.DisableWriteTypeTree));
             m_ToggleData.Add(new ToggleData(
                 false,
                 "Force Rebuild",
                 "Force rebuild the asset bundles",
+                m_OnToggles,
                 BuildAssetBundleOptions.ForceRebuildAssetBundle));
             m_ToggleData.Add(new ToggleData(
                 false,
                 "Ignore Type Tree Changes",
                 "Ignore the type tree changes when doing the incremental build check.",
+                m_OnToggles,
                 BuildAssetBundleOptions.IgnoreTypeTreeChanges));
             m_ToggleData.Add(new ToggleData(
                 false,
                 "Append Hash",
                 "Append the hash to the assetBundle name.",
+                m_OnToggles,
                 BuildAssetBundleOptions.AppendHashToAssetBundleName));
             m_ToggleData.Add(new ToggleData(
                 false,
                 "Strict Mode",
                 "Do not allow the build to succeed if any errors are reporting during it.",
+                m_OnToggles,
                 BuildAssetBundleOptions.StrictMode));
             m_ToggleData.Add(new ToggleData(
                 false,
                 "Dry Run Build",
                 "Do a dry run build.",
+                m_OnToggles,
                 BuildAssetBundleOptions.DryRunBuild));
 
 
             m_ForceRebuild = new ToggleData(
                 false,
                 "Clear Folders",
-                "Will wipe out all contents of build directory as well as StreamingAssets/AssetBundles if you are choosing to copy build there.");
+                "Will wipe out all contents of build directory as well as StreamingAssets/AssetBundles if you are choosing to copy build there.",
+                m_OnToggles);
             m_CopyToStreaming = new ToggleData(
                 false,
                 "Copy to StreamingAssets",
-                "After build completes, will copy all build content to " + m_streamingPath + " for use in stand-alone player.");
+                "After build completes, will copy all build content to " + m_streamingPath + " for use in stand-alone player.",
+                m_OnToggles);
 
             m_TargetContent = new GUIContent("Build Target", "Choose target platform to build for.");
             m_CompressionContent = new GUIContent("Compression", "Choose no compress, standard (LZMA), or chunk based (LZ4)");
-            
-            m_UseDefaultPath = EditorPrefs.GetBool(k_BuildPrefPrefix + "DefaultOutputBuildPath", m_UseDefaultPath);
+
+            if(m_UseDefaultPath)
+            {
+                ResetPathToDefault();
+            }
         }
 
         public void OnGUI(Rect pos)
@@ -124,12 +150,11 @@ namespace UnityEngine.AssetBundles
             GUILayout.BeginVertical();
 
             // build target
-            using (new EditorGUI.DisabledScope (!AssetBundleModel.Model.Operation.CanSpecifyBuildTarget)) {
+            using (new EditorGUI.DisabledScope (!AssetBundleModel.Model.DataSource.CanSpecifyBuildTarget)) {
                 ValidBuildTarget tgt = (ValidBuildTarget)EditorGUILayout.EnumPopup(m_TargetContent, m_BuildTarget);
                 if (tgt != m_BuildTarget)
                 {
                     m_BuildTarget = tgt;
-                    EditorPrefs.SetInt(k_BuildPrefPrefix + "BuildTarget", (int)m_BuildTarget);
                     if(m_UseDefaultPath)
                     {
                         m_OutputPath = "AssetBundles/";
@@ -141,7 +166,7 @@ namespace UnityEngine.AssetBundles
 
 
             ////output path
-            using (new EditorGUI.DisabledScope (!AssetBundleModel.Model.Operation.CanSpecifyBuildOutputDirectory)) {
+            using (new EditorGUI.DisabledScope (!AssetBundleModel.Model.DataSource.CanSpecifyBuildOutputDirectory)) {
                 EditorGUILayout.Space();
                 GUILayout.BeginHorizontal();
                 var newPath = EditorGUILayout.TextField("Output Path", m_OutputPath);
@@ -168,7 +193,10 @@ namespace UnityEngine.AssetBundles
                     m_ForceRebuild.content);
                 if (newState != m_ForceRebuild.state)
                 {
-                    EditorPrefs.SetBool(m_ForceRebuild.prefsKey, newState);
+                    if (newState)
+                        m_OnToggles.Add(m_ForceRebuild.content.text);
+                    else
+                        m_OnToggles.Remove(m_ForceRebuild.content.text);
                     m_ForceRebuild.state = newState;
                 }
                 newState = GUILayout.Toggle(
@@ -176,13 +204,16 @@ namespace UnityEngine.AssetBundles
                     m_CopyToStreaming.content);
                 if (newState != m_CopyToStreaming.state)
                 {
-                    EditorPrefs.SetBool(m_CopyToStreaming.prefsKey, newState);
+                    if (newState)
+                        m_OnToggles.Add(m_CopyToStreaming.content.text);
+                    else
+                        m_OnToggles.Remove(m_CopyToStreaming.content.text);
                     m_CopyToStreaming.state = newState;
                 }
             }
 
             // advanced options
-            using (new EditorGUI.DisabledScope (!AssetBundleModel.Model.Operation.CanSpecifyBuildOptions)) {
+            using (new EditorGUI.DisabledScope (!AssetBundleModel.Model.DataSource.CanSpecifyBuildOptions)) {
                 EditorGUILayout.Space();
                 m_AdvancedSettings = EditorGUILayout.Foldout(m_AdvancedSettings, "Advanced Settings");
                 if(m_AdvancedSettings)
@@ -198,7 +229,6 @@ namespace UnityEngine.AssetBundles
                     if (cmp != m_Compression)
                     {
                         m_Compression = cmp;
-                        EditorPrefs.SetInt(k_BuildPrefPrefix + "Compression", (int)m_Compression);
                     }
                     foreach (var tog in m_ToggleData)
                     {
@@ -207,7 +237,11 @@ namespace UnityEngine.AssetBundles
                             tog.state);
                         if (newState != tog.state)
                         {
-                            EditorPrefs.SetBool(tog.prefsKey, newState);
+
+                            if (newState)
+                                m_OnToggles.Add(tog.content.text);
+                            else
+                                m_OnToggles.Remove(tog.content.text);
                             tog.state = newState;
                         }
                     }
@@ -228,7 +262,7 @@ namespace UnityEngine.AssetBundles
 
         private void ExecuteBuild()
         {
-            if (AssetBundleModel.Model.Operation.CanSpecifyBuildOutputDirectory) {
+            if (AssetBundleModel.Model.DataSource.CanSpecifyBuildOutputDirectory) {
                 if (string.IsNullOrEmpty(m_OutputPath))
                     BrowseForFolder();
 
@@ -267,7 +301,7 @@ namespace UnityEngine.AssetBundles
 
             BuildAssetBundleOptions opt = BuildAssetBundleOptions.None;
 
-            if (AssetBundleModel.Model.Operation.CanSpecifyBuildOptions) {
+            if (AssetBundleModel.Model.DataSource.CanSpecifyBuildOptions) {
                 if (m_Compression == CompressOptions.Uncompressed)
                     opt |= BuildAssetBundleOptions.UncompressedAssetBundle;
                 else if (m_Compression == CompressOptions.ChunkBasedCompression)
@@ -285,7 +319,7 @@ namespace UnityEngine.AssetBundles
             buildInfo.options = opt;
             buildInfo.buildTarget = (BuildTarget)m_BuildTarget;
 
-            AssetBundleModel.Model.Operation.BuildAssetBundles (buildInfo);
+            AssetBundleModel.Model.DataSource.BuildAssetBundles (buildInfo);
 
             AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
 
@@ -324,13 +358,12 @@ namespace UnityEngine.AssetBundles
         private void BrowseForFolder()
         {
             m_UseDefaultPath = false;
-            EditorPrefs.SetBool(k_BuildPrefPrefix + "DefaultOutputBuildPath", m_UseDefaultPath);
             var newPath = EditorUtility.OpenFolderPanel("Bundle Folder", m_OutputPath, string.Empty);
             if (!string.IsNullOrEmpty(newPath))
             {
                 var gamePath = System.IO.Path.GetFullPath(".");
                 gamePath = gamePath.Replace("\\", "/");
-                if (newPath.StartsWith(gamePath))
+                if (newPath.StartsWith(gamePath) && newPath.Length > gamePath.Length)
                     newPath = newPath.Remove(0, gamePath.Length+1);
                 m_OutputPath = newPath;
                 EditorUserBuildSettings.SetPlatformSettings(EditorUserBuildSettings.activeBuildTarget.ToString(), "AssetBundleOutputPath", m_OutputPath);
@@ -339,7 +372,6 @@ namespace UnityEngine.AssetBundles
         private void ResetPathToDefault()
         {
             m_UseDefaultPath = true;
-            EditorPrefs.SetBool(k_BuildPrefPrefix + "DefaultOutputBuildPath", m_UseDefaultPath);
             m_OutputPath = "AssetBundles/";
             m_OutputPath += m_BuildTarget.ToString();
             EditorUserBuildSettings.SetPlatformSettings(EditorUserBuildSettings.activeBuildTarget.ToString(), "AssetBundleOutputPath", m_OutputPath);
